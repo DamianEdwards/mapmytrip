@@ -122,6 +122,16 @@
         </div>
         <div id="searchResults" class="search-results" role="listbox" aria-label="Matching trip items"></div>
       </div>
+      <div id="mapTimeline" class="map-timeline" aria-label="Trip timeline" hidden>
+        <div class="timeline-header">
+          <span id="timelineTitle">Trip timeline</span>
+          <span id="timelineCurrent"></span>
+        </div>
+        <div class="timeline-rail">
+          <input id="timelineSlider" class="timeline-slider" type="range" min="0" max="0" step="1" value="0" aria-label="Move through trip items">
+          <div id="timelineTicks" class="timeline-ticks" aria-hidden="true"></div>
+        </div>
+      </div>
       <div class="map-note">
         Calendar feeds are fetched directly by your browser. If a provider blocks browser access with CORS, download the .ics file and import it here instead.
       </div>

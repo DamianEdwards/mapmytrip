@@ -21,6 +21,8 @@ const ICONS = {
   "Events": "🎟️",
   "Other": "•"
 };
+const DAY_MS = 24 * 60 * 60 * 1000;
+const TIMELINE_DAY_STEPS = [1, 2, 3, 7, 14, 30, 60, 90, 180, 365];
 
 const AIRPORT_OFFSETS = { FAO: 60, LCY: 60, LHR: 60, SEA: -420 };
 const CITY_HINTS = {
@@ -45,6 +47,7 @@ let trips = [];
 let activeTrip = null;
 let items = [];
 let activeTypes = new Set(TYPE_ORDER);
+let activeItemId = "";
 let activeRouteId = "";
 let activeSearchIndex = -1;
 let routeRenderToken = 0;
@@ -95,7 +98,12 @@ const els = {
   itinerary: document.getElementById("itinerary"),
   tripSearch: document.getElementById("tripSearch"),
   clearSearch: document.getElementById("clearSearch"),
-  searchResults: document.getElementById("searchResults")
+  searchResults: document.getElementById("searchResults"),
+  mapTimeline: document.getElementById("mapTimeline"),
+  timelineTitle: document.getElementById("timelineTitle"),
+  timelineCurrent: document.getElementById("timelineCurrent"),
+  timelineSlider: document.getElementById("timelineSlider"),
+  timelineTicks: document.getElementById("timelineTicks")
 };
 
 init().catch(error => setStatus(error.message, true));
@@ -119,6 +127,11 @@ function wireControls() {
   els.startDate.addEventListener("change", render);
   els.endDate.addEventListener("change", render);
   els.routedRoutes.addEventListener("change", render);
+  els.timelineSlider.addEventListener("input", () => {
+    const item = nearestTimelineItem(sortedTimelineItems(), Number(els.timelineSlider.value));
+    if (item) focusItem(item.id, true);
+  });
+  window.addEventListener("resize", renderTimeline);
   els.tripSearch.addEventListener("input", renderSearchResults);
   els.tripSearch.addEventListener("focus", renderSearchResults);
   els.tripSearch.addEventListener("keydown", handleSearchKeydown);
@@ -170,9 +183,12 @@ function removeTrip(id) {
 }
 
 async function loadTrips(selectedId = null) {
+  const previousTripId = activeTrip?.id || "";
   trips = await getAllTrips();
   activeTrip = trips.find(trip => trip.id === selectedId) || trips[0] || null;
   items = activeTrip?.items || [];
+  if (activeTrip?.id !== previousTripId) activeRouteId = "";
+  ensureActiveTimelineItem();
   renderTripSelect();
 }
 
@@ -216,6 +232,8 @@ function updateFilterSummary() {
 async function selectTrip(id) {
   activeTrip = trips.find(trip => trip.id === id) || null;
   items = activeTrip?.items || [];
+  activeRouteId = "";
+  ensureActiveTimelineItem();
   renderTripSelect();
   resetDateControls();
   render();
@@ -601,9 +619,24 @@ function formatDay(day) {
   return new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
+function formatTimelineDay(day, totalDays = 0) {
+  if (!day) return "";
+  const options = totalDays > 365 ? { month: "short", year: "numeric" } : { month: "short", day: "numeric" };
+  return new Date(`${day}T12:00:00`).toLocaleDateString(undefined, options);
+}
+
 function formatTime(value) {
   if (!value) return "All day";
   return value.slice(11, 16) || "All day";
+}
+
+function dateOnlyMs(day) {
+  const [year, month, date] = day.split("-").map(Number);
+  return Date.UTC(year, month - 1, date);
+}
+
+function addDays(day, offset) {
+  return new Date(dateOnlyMs(day) + offset * DAY_MS).toISOString().slice(0, 10);
 }
 
 function itemHasCoords(item) {
@@ -626,6 +659,39 @@ function visibleItems() {
   return items.filter(item => activeTypes.has(item.type) && itemInDateWindow(item));
 }
 
+function sortedTimelineItems() {
+  return [...items]
+    .filter(item => dayKey(item) && Number.isFinite(itemTimeMs(item)))
+    .sort((a, b) => itemTimeMs(a) - itemTimeMs(b));
+}
+
+function ensureActiveTimelineItem() {
+  const timeline = sortedTimelineItems();
+  if (!timeline.some(item => item.id === activeItemId)) activeItemId = timeline[0]?.id || "";
+  if (!activeTrip) {
+    activeItemId = "";
+    activeRouteId = "";
+  }
+}
+
+function itemTimeMs(item) {
+  const time = new Date(item.startDateTime || "").getTime();
+  return Number.isFinite(time) ? time : NaN;
+}
+
+function nearestTimelineItem(timeline, value) {
+  let nearest = timeline[0] || null;
+  let nearestDistance = Infinity;
+  for (const item of timeline) {
+    const distance = Math.abs(itemTimeMs(item) - value);
+    if (distance < nearestDistance) {
+      nearest = item;
+      nearestDistance = distance;
+    }
+  }
+  return nearest;
+}
+
 function itemInDateWindow(item) {
   const day = dayKey(item);
   if (!day) return false;
@@ -641,14 +707,19 @@ function render() {
     els.itinerary.innerHTML = '<div class="empty-state">Import a TripIt ICS file or calendar feed to get started.</div>';
     markerLayer.clearLayers();
     routeLayer.clearLayers();
+    activeItemId = "";
+    activeRouteId = "";
+    renderTimeline();
     els.visibleSummary.textContent = "No trip selected.";
     els.routeStatus.textContent = "Import a trip to show routes.";
     return;
   }
+  ensureActiveTimelineItem();
   const visible = visibleItems();
   visibleRouteLegsById.clear();
   renderItinerary(visible);
   renderMap(visible);
+  renderTimeline();
   const markerCount = visible.filter(item => itemHasCoords(item) && !item.isDirections).length;
   els.visibleSummary.textContent = `${visible.length} visible items, ${markerCount} mapped`;
 }
@@ -694,7 +765,7 @@ function renderItinerary(visible) {
 
 function itemEntry(item) {
   const button = document.createElement("button");
-  button.className = `item${itemHasCoords(item) ? "" : " no-marker"}`;
+  button.className = `item${itemHasCoords(item) ? "" : " no-marker"}${item.id === activeItemId ? " active" : ""}`;
   button.dataset.itemId = item.id;
   button.innerHTML = `
     <div class="item-top">
@@ -721,7 +792,10 @@ function routeEntry(leg) {
     <span class="meta">${escapeHtml(leg.from.title)} → ${escapeHtml(leg.to.title)}</span>
     <span class="meta">${escapeHtml(routeDetailsText(leg))}</span>
   `;
-  button.addEventListener("click", () => focusRoute(leg.id, true, true, false));
+  button.addEventListener("click", () => {
+    if (leg.directionItem) focusItem(leg.directionItem.id, false);
+    else focusRoute(leg.id, true, true, false);
+  });
   return button;
 }
 
@@ -744,9 +818,10 @@ function renderMap(visible) {
   const singleDayMode = els.viewMode.value === "day";
   for (const item of visible) {
     if (!itemHasCoords(item) || item.isDirections) continue;
-    const selectedDay = singleDayMode && dayKey(item) === els.daySelect.value;
-    const marker = L.marker([item.latitude, item.longitude], { icon: categoryIcon(item.type, selectedDay) });
+    const selectedMarker = item.id === activeItemId || (singleDayMode && dayKey(item) === els.daySelect.value);
+    const marker = L.marker([item.latitude, item.longitude], { icon: categoryIcon(item.type, selectedMarker) });
     marker.bindPopup(popupHtml(item), { maxWidth: 360 });
+    marker.on("click", () => focusItem(item.id, false));
     marker.addTo(markerLayer);
     markersById.set(item.id, marker);
     bounds.push([item.latitude, item.longitude]);
@@ -755,6 +830,76 @@ function renderMap(visible) {
   drawRoutes(visible, token);
   if (bounds.length) map.fitBounds(bounds, { padding: [28, 28], maxZoom: 13 });
   else map.setView([51.5, -1.2], 6);
+}
+
+function renderTimeline() {
+  const timeline = sortedTimelineItems();
+  if (!activeTrip || !timeline.length) {
+    els.mapTimeline.hidden = true;
+    els.timelineTicks.replaceChildren();
+    els.timelineSlider.max = "0";
+    els.timelineSlider.value = "0";
+    els.timelineCurrent.textContent = "";
+    return;
+  }
+
+  els.mapTimeline.hidden = false;
+  els.timelineTitle.textContent = `${activeTrip.title} timeline`;
+  const firstTime = itemTimeMs(timeline[0]);
+  const lastTime = itemTimeMs(timeline.at(-1));
+  els.timelineSlider.min = String(firstTime);
+  els.timelineSlider.max = String(Math.max(lastTime, firstTime + 1));
+  els.timelineSlider.step = "60000";
+  els.timelineSlider.disabled = timeline.length < 2 || firstTime === lastTime;
+  updateTimelinePosition(timeline);
+  renderTimelineTicks(timeline);
+}
+
+function updateTimelinePosition(timeline = sortedTimelineItems()) {
+  if (!activeTrip || !timeline.length) return;
+  const selectedIndex = Math.max(0, timeline.findIndex(item => item.id === activeItemId));
+  const selectedItem = timeline[selectedIndex];
+  els.timelineSlider.value = String(itemTimeMs(selectedItem));
+  const label = `${formatDay(dayKey(selectedItem))} ${formatTime(selectedItem.startDateTime)} - ${selectedItem.title}`;
+  els.timelineSlider.setAttribute("aria-valuetext", label);
+  els.timelineCurrent.textContent = label;
+}
+
+function renderTimelineTicks(timeline) {
+  els.timelineTicks.replaceChildren();
+  const startDay = dayKey(timeline[0]);
+  const endDay = dayKey(timeline.at(-1));
+  const startTime = itemTimeMs(timeline[0]);
+  const endTime = itemTimeMs(timeline.at(-1));
+  const duration = Math.max(1, endTime - startTime);
+  const totalDays = Math.max(0, Math.round((dateOnlyMs(endDay) - dateOnlyMs(startDay)) / DAY_MS));
+  const width = els.mapTimeline.clientWidth || window.innerWidth || 640;
+  const maxTicks = Math.max(2, Math.floor((width - 80) / 84));
+  const step = TIMELINE_DAY_STEPS.find(candidate => (totalDays / candidate) + 1 <= maxTicks) || TIMELINE_DAY_STEPS.at(-1);
+  const tickDays = [];
+  for (let offset = 0; offset <= totalDays; offset += step) tickDays.push(addDays(startDay, offset));
+  if (tickDays.at(-1) !== endDay) tickDays.push(endDay);
+
+  for (const day of tickDays) {
+    const tick = document.createElement("span");
+    tick.className = "timeline-tick";
+    const tickTime = day === startDay ? startTime : day === endDay ? endTime : dateOnlyMs(day);
+    tick.style.left = `${Math.max(0, Math.min(100, ((tickTime - startTime) / duration) * 100))}%`;
+    const label = document.createElement("span");
+    label.textContent = formatTimelineDay(day, totalDays);
+    tick.append(label);
+    els.timelineTicks.append(tick);
+  }
+}
+
+function updateMarkerSelection() {
+  const singleDayMode = els.viewMode.value === "day";
+  for (const [id, marker] of markersById.entries()) {
+    const item = items.find(candidate => candidate.id === id);
+    if (!item) continue;
+    const selectedMarker = item.id === activeItemId || (singleDayMode && dayKey(item) === els.daySelect.value);
+    marker.setIcon(categoryIcon(item.type, selectedMarker));
+  }
 }
 
 function routeableItems(dayItems) {
@@ -946,7 +1091,10 @@ function drawFallbackLeg(leg) {
 
 function wireRouteLayer(leg, layer) {
   layer.bindTooltip(routeDetailsText(leg), { sticky: true });
-  layer.on("click", () => focusRoute(leg.id, false, true, true));
+  layer.on("click", () => {
+    if (leg.directionItem) focusItem(leg.directionItem.id, true);
+    else focusRoute(leg.id, false, true, true);
+  });
   layer.on("mouseover", () => focusRoute(leg.id, false, false, false));
   layer.addTo(routeLayer);
   routeLayersById.set(leg.id, layer);
@@ -993,11 +1141,15 @@ function focusRoute(routeId, fitRoute = false, showPopup = false, revealEntry = 
 function focusItem(itemId, revealEntry = true) {
   const item = items.find(candidate => candidate.id === itemId);
   if (!item) return;
+  activeItemId = item.id;
   if (ensureItemVisible(item)) {
     requestAnimationFrame(() => focusItem(itemId, revealEntry));
     return;
   }
+  if (!item.isDirections) clearActiveRoute();
   for (const button of document.querySelectorAll(".item")) button.classList.toggle("active", button.dataset.itemId === itemId);
+  updateTimelinePosition();
+  updateMarkerSelection();
   const entry = itemButtonsById.get(itemId);
   if (revealEntry && entry) entry.scrollIntoView({ block: "nearest", behavior: "smooth" });
   const marker = markersById.get(itemId);
@@ -1008,6 +1160,13 @@ function focusItem(itemId, revealEntry = true) {
     const route = [...visibleRouteLegsById.values()].find(leg => leg.directionItem?.id === item.id);
     if (route) focusRoute(route.id, true, true, false);
   }
+}
+
+function clearActiveRoute() {
+  if (!activeRouteId) return;
+  activeRouteId = "";
+  for (const [id, layer] of routeLayersById.entries()) setRouteLayerStyle(id, layer);
+  for (const entry of document.querySelectorAll(".route-entry")) entry.classList.remove("active");
 }
 
 function ensureItemVisible(item) {
