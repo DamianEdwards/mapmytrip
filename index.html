@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trip Timeline Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <aside>
+      <div class="sidebar-tools">
+        <header>
+          <h1>Trip Timeline Map</h1>
+          <p class="subtitle">Import TripIt ICS files or calendar feeds. Trips are stored locally in this browser.</p>
+        </header>
+
+        <section class="trip-manager" aria-label="Trip manager">
+          <label>
+            Stored trip
+            <select id="tripSelect"></select>
+          </label>
+          <div class="button-row">
+            <button id="renameTrip" type="button">Rename</button>
+            <button id="refreshTrip" type="button">Refresh URL</button>
+            <button id="deleteTrip" type="button" class="danger">Delete</button>
+          </div>
+          <details>
+            <summary>Import or update a trip</summary>
+            <div class="import-grid">
+            <label>
+              Trip title
+              <input id="importTitle" type="text" placeholder="Optional title">
+            </label>
+            <label>
+              ICS file
+              <input id="icsFile" type="file" accept=".ics,text/calendar">
+            </label>
+            <label>
+              Calendar feed URL
+              <input id="feedUrl" type="url" placeholder="https://.../tripit.ics">
+            </label>
+            <div class="range-controls">
+              <label>
+                Start date
+                <input id="importStartDate" type="date">
+              </label>
+              <label>
+                End date
+                <input id="importEndDate" type="date">
+              </label>
+            </div>
+            <label>
+              Import behavior
+              <select id="importMode">
+                <option value="new">Create new trip</option>
+                <option value="overwrite">Overwrite selected trip</option>
+                <option value="merge">Merge into selected trip</option>
+              </select>
+            </label>
+            <label class="route-toggle">
+              <input id="synthesizeDirections" type="checkbox">
+              Synthesize direction legs from itinerary gaps
+            </label>
+            <button id="importTrip" type="button" class="primary">Import</button>
+          </div>
+          </details>
+          <p id="importStatus" class="status"></p>
+        </section>
+
+        <section class="controls" aria-label="Trip controls">
+          <div class="view-row">
+            <label>
+              View
+              <select id="viewMode">
+                <option value="all">All trip items</option>
+                <option value="day">Single day</option>
+                <option value="range">Selected date range</option>
+              </select>
+            </label>
+            <label id="dayControl">
+              Day
+              <select id="daySelect"></select>
+            </label>
+          </div>
+          <div class="range-controls" id="rangeControl">
+            <label>
+              Start date
+              <input id="startDate" type="date">
+            </label>
+            <label>
+              End date
+              <input id="endDate" type="date">
+            </label>
+          </div>
+          <div class="summary" id="visibleSummary"></div>
+          <label class="route-toggle">
+            <input id="routedRoutes" type="checkbox">
+            Use road directions via OSRM
+          </label>
+          <div class="summary" id="routeStatus">Import a trip to show routes.</div>
+          <details class="filter-details">
+            <summary id="filterSummary">Filters</summary>
+            <div class="filters" id="filters" aria-label="Type filters"></div>
+          </details>
+        </section>
+      </div>
+
+      <main id="itinerary" aria-label="Chronological itinerary">
+        <div class="empty-state">Import a TripIt ICS file or calendar feed to get started.</div>
+      </main>
+    </aside>
+
+    <section class="map-wrap">
+      <div id="map"></div>
+      <div class="map-search" role="search">
+        <div class="search-box">
+          <input id="tripSearch" type="search" placeholder="Search trip items..." autocomplete="off" aria-label="Search trip items" aria-controls="searchResults">
+          <button id="clearSearch" type="button" aria-label="Clear search">Clear</button>
+        </div>
+        <div id="searchResults" class="search-results" role="listbox" aria-label="Matching trip items"></div>
+      </div>
+      <div class="map-note">
+        Calendar feeds are fetched directly by your browser. If a provider blocks browser access with CORS, download the .ics file and import it here instead.
+      </div>
+    </section>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="app.js"></script>
+</body>
+</html>
