@@ -4,10 +4,24 @@ A standalone static web app for importing TripIt `.ics` calendar exports and vis
 
 ## Use locally
 
-Serve the folder with any static file server, then open `index.html`.
+Serve the folder with any static file server, then open the local URL it prints.
+
+Using an npm package:
+
+```powershell
+npx http-server . -p 8000
+```
+
+Using Python:
 
 ```powershell
 python -m http.server 8000
+```
+
+Using a NuGet package with `dnx`:
+
+```powershell
+dnx dotnet-serve --port 8000
 ```
 
 The app runs entirely in the browser. Imported trips are stored locally in IndexedDB. It does not call paid APIs or automatically geocode locations.

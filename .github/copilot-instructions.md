@@ -12,7 +12,7 @@ Map My Trip is a standalone static browser app for importing TripIt `.ics` calen
 - Serve locally with any static file server, for example:
 
   ```powershell
-  python -m http.server 8000
+  dnx dotnet-serve --port 8000
   ```
 
 ## Privacy and data handling
